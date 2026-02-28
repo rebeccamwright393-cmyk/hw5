@@ -69,3 +69,14 @@ export const saveMessage = async (sessionId, role, content, imageData = null, ch
 export const loadMessages = async (sessionId) => {
   return api(`/api/messages?session_id=${encodeURIComponent(sessionId)}`);
 };
+
+// ── Image generation ────────────────────────────────────────────────────────
+
+export const generateImage = async (prompt, anchorImage = null) => {
+  const body = { prompt };
+  if (anchorImage) body.anchorImage = anchorImage;
+  return api('/api/generate-image', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+};

@@ -108,12 +108,36 @@ export const CSV_TOOL_DECLARATIONS = [
       required: ['field'],
     },
   },
+  {
+    name: 'generateImage',
+    description:
+      'Generate an image from a text prompt. Optionally, if the user has attached an anchor/reference image, use it to guide the generation (e.g. "generate like this but with a beach", "create an image in this style"). When the user asks to generate, create, draw, or make an image, picture, photo, or illustration, call this tool with a descriptive prompt.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        prompt: {
+          type: 'STRING',
+          description: 'A detailed text description of the image to generate. Include style, subject, composition, colors, and mood. If the user attached an image as reference, describe how the new image should relate to it (e.g. "same style but with a dog instead of a cat").',
+        },
+        anchorImage: {
+          type: 'STRING',
+          description: 'Optional. Base64-encoded image data (without data URL prefix) when the user has dragged/attached a reference image. Used for image-to-image generation or style guidance. Omit if no reference image was provided.',
+        },
+      },
+      required: ['prompt'],
+    },
+  },
 ];
 
 export const CHANNEL_TOOL_DECLARATIONS = [
   CSV_TOOL_DECLARATIONS.find((t) => t.name === 'compute_stats_json'),
   CSV_TOOL_DECLARATIONS.find((t) => t.name === 'play_video'),
   CSV_TOOL_DECLARATIONS.find((t) => t.name === 'plot_metric_vs_time'),
+  CSV_TOOL_DECLARATIONS.find((t) => t.name === 'generateImage'),
+].filter(Boolean);
+
+export const IMAGE_GEN_TOOL_DECLARATIONS = [
+  CSV_TOOL_DECLARATIONS.find((t) => t.name === 'generateImage'),
 ].filter(Boolean);
 
 // ── Parse a CSV line, respecting quoted fields ────────────────────────────────

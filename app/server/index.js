@@ -155,6 +155,62 @@ app.patch('/api/sessions/:id/title', async (req, res) => {
   }
 });
 
+// ── Image generation (Imagen via @google/genai) ───────────────────────────────
+
+app.post('/api/generate-image', async (req, res) => {
+  try {
+    const { prompt, anchorImage } = req.body;
+    if (!prompt || typeof prompt !== 'string') {
+      return res.status(400).json({ error: 'prompt is required' });
+    }
+    const apiKey = process.env.REACT_APP_GEMINI_API_KEY;
+    if (!apiKey) {
+      return res.status(500).json({ error: 'GEMINI_API_KEY not configured' });
+    }
+    const { GoogleGenAI } = await import('@google/genai');
+    const ai = new GoogleGenAI({ apiKey });
+    const config = { numberOfImages: 1, aspectRatio: '1:1' };
+    let response;
+    try {
+      if (anchorImage && typeof anchorImage === 'string') {
+        const base64Data = anchorImage.replace(/^data:image\/\w+;base64,/, '');
+        response = await ai.models.editImage({
+          model: 'imagen-3.0-capability-001',
+          prompt: prompt.trim(),
+          referenceImages: [{ referenceImage: { imageBytes: base64Data } }],
+          config,
+        });
+      } else {
+        response = await ai.models.generateImages({
+          model: 'imagen-3.0-generate-001',
+          prompt: prompt.trim(),
+          config,
+        });
+      }
+    } catch (editErr) {
+      if (anchorImage) {
+        response = await ai.models.generateImages({
+          model: 'imagen-3.0-generate-001',
+          prompt: prompt.trim(),
+          config,
+        });
+      } else {
+        throw editErr;
+      }
+    }
+    const firstImg = response?.generatedImages?.[0];
+    const imageBytes = firstImg?.image?.imageBytes || firstImg?.imageBytes;
+    const mimeType = firstImg?.image?.mimeType || firstImg?.mimeType || 'image/png';
+    if (!imageBytes) {
+      return res.status(500).json({ error: 'No image in API response. Imagen may require a paid API key.' });
+    }
+    res.json({ imageData: imageBytes, mimeType });
+  } catch (err) {
+    console.error('[generate-image]', err);
+    res.status(500).json({ error: err.message || 'Image generation failed' });
+  }
+});
+
 // ── YouTube channel download ──────────────────────────────────────────────────
 
 app.post('/api/youtube/download-channel', async (req, res) => {

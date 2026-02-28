@@ -43,6 +43,12 @@ plot_metric_vs_time — Tool for YouTube channel JSON:
 - Output: Chart data (field, data points) or { error: "message" } if release_date or the field is missing/non-numeric.
 - Example prompts that trigger this tool: "Plot view_count over time", "Chart likes vs release date", "Graph comment_count vs time", "Show me views over time".
 
+generateImage — Tool for AI image generation:
+- Purpose: Generate an image from a text prompt. Optionally, if the user has attached an anchor/reference image, use it to guide the generation (e.g. "generate like this but with a beach", "create an image in this style"). The generated image is displayed in chat, can be clicked to enlarge (lightbox), and downloaded.
+- Input: { "prompt": "string", "anchorImage": "optional string" } — prompt is required: a detailed text description of the image to generate (style, subject, composition, colors). anchorImage is optional: base64-encoded image when the user dragged a reference image; omit if no reference.
+- Output: JSON object with imageData (base64) and mimeType, or { error: "message" } on failure.
+- Example prompts that trigger this tool: "Generate an image of a sunset over mountains", "Create a picture of a cat wearing a hat", "Draw an illustration of a robot", "Make an image like this but with a beach", "Generate something in this style with a dog", "Create a social media post image of a coffee shop".
+
 When a CSV is uploaded that contains a Favorite Count and a View Count column, an "engagement" column is automatically added to every row: engagement = Favorite Count / View Count. This column is always available for filtering, sorting, and analysis.
 
 You also have access to the following data analysis tools that work directly on any CSV the user uploads. Use them automatically when a student asks a data question — don't explain that you're calling a tool, just answer naturally with the result:

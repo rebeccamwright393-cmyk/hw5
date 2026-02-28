@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { streamChat, chatWithCsvTools, chatWithChannelTools, CODE_KEYWORDS } from '../services/gemini';
+import { streamChat, chatWithCsvTools, chatWithChannelTools, chatWithImageTools, CODE_KEYWORDS } from '../services/gemini';
 import { parseCsvToRows, executeTool, executeComputeStatsJson, executePlayVideo, executePlotMetricVsTime, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
 import {
   getSessions,
@@ -9,6 +9,7 @@ import {
   deleteSession,
   saveMessage,
   loadMessages,
+  generateImage as apiGenerateImage,
 } from '../services/mongoApi';
 import EngagementChart from './EngagementChart';
 import MetricVsTimeChart from './MetricVsTimeChart';
@@ -60,6 +61,47 @@ const messageText = (m) => {
   if (m.parts) return m.parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n');
   return m.content || '';
 };
+
+// ── Generated image card (generateImage tool result) ──────────────────────────
+
+function GeneratedImageCard({ imageData, mimeType }) {
+  const [lightboxOpen, setLightboxOpen] = useState(false);
+  const handleClick = () => setLightboxOpen(true);
+  const handleDownload = (e) => {
+    e.stopPropagation();
+    const link = document.createElement('a');
+    link.href = `data:${mimeType || 'image/png'};base64,${imageData}`;
+    link.download = `generated-${Date.now()}.png`;
+    link.click();
+  };
+  const dataUrl = imageData ? `data:${mimeType || 'image/png'};base64,${imageData}` : null;
+  if (!dataUrl) return null;
+  return (
+    <>
+      <div className="generated-image-card" onClick={handleClick}>
+        <img src={dataUrl} alt="Generated" className="generated-image-thumb" />
+        <div className="generated-image-actions">
+          <button type="button" className="generated-image-download" onClick={handleDownload}>
+            Download
+          </button>
+        </div>
+      </div>
+      {lightboxOpen && (
+        <div className="image-lightbox-overlay" onClick={() => setLightboxOpen(false)}>
+          <div className="image-lightbox-content" onClick={(e) => e.stopPropagation()}>
+            <img src={dataUrl} alt="Generated full size" />
+            <button type="button" className="image-lightbox-close" onClick={() => setLightboxOpen(false)}>
+              ×
+            </button>
+            <button type="button" className="image-lightbox-download" onClick={handleDownload}>
+              Download
+            </button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
 
 // ── Video card (play_video tool result) ───────────────────────────────────────
 
@@ -429,9 +471,11 @@ export default function Chat({ user, onLogout, channelData: channelDataProp, set
     //   useCodeExecution — Python explicitly needed (regression, histogram, etc.)
     //   else            — Google Search streaming
     const CHANNEL_KEYWORDS = /\b(stats?|average|summary|distribution|mean|median|views?|likes?|comments?|duration|view_count|like_count|comment_count|play|open|plot|chart|graph)\b/i;
-    const useChannelTools = !!channelData && !sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && CHANNEL_KEYWORDS.test(text);
-    const useTools = !!sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv;
-    const useCodeExecution = wantPythonOnly || wantCode;
+    const IMAGE_GEN_KEYWORDS = /\b(generate|create|draw|make)\s+(an?\s+)?(image|picture|photo|illustration|art)\b|(like\s+this|in\s+this\s+style|based\s+on\s+this)\b/i;
+    const useImageGenTools = IMAGE_GEN_KEYWORDS.test(text) || (images.length > 0 && /\b(generate|create|draw|make|like\s+this|in\s+this\s+style)\b/i.test(text));
+    const useChannelTools = !!channelData && !sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && CHANNEL_KEYWORDS.test(text) && !useImageGenTools;
+    const useTools = !!sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && !useImageGenTools;
+    const useCodeExecution = (wantPythonOnly || wantCode) && !useImageGenTools;
 
     // ── Build prompt ─────────────────────────────────────────────────────────
     // sessionSummary: auto-computed column stats, included with every message
@@ -522,13 +566,50 @@ ${sessionSummary}${slimCsvBlock}
     let toolCalls = [];
 
     try {
-      if (useChannelTools) {
+      if (useImageGenTools) {
+        // ── Image generation: generateImage ───────────────────────────────────
+        console.log('[Chat] useImageGenTools=true');
+        const { text: answer, toolCalls: returnedCalls } = await chatWithImageTools(
+          history,
+          promptForGemini,
+          async (toolName, args) => {
+            if (toolName === 'generateImage') {
+              const anchor = capturedImages[0]?.data || args.anchorImage || null;
+              const res = await apiGenerateImage(args.prompt || '', anchor);
+              if (res.error) return { error: res.error };
+              return { _imageGenerated: true, imageData: res.imageData, mimeType: res.mimeType };
+            }
+            return { error: `Unknown tool: ${toolName}` };
+          },
+          imageParts,
+          user?.firstName
+        );
+        fullContent = answer;
+        toolCalls = returnedCalls || [];
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === assistantId
+              ? {
+                  ...msg,
+                  content: fullContent,
+                  toolCalls: toolCalls.length ? toolCalls : undefined,
+                }
+              : msg
+          )
+        );
+      } else if (useChannelTools) {
         // ── Channel JSON tools: compute_stats_json ───────────────────────────
         console.log('[Chat] useChannelTools=true | channelData loaded');
         const { text: answer, toolCalls: returnedCalls } = await chatWithChannelTools(
           history,
           promptForGemini,
-          (toolName, args) => {
+          async (toolName, args) => {
+            if (toolName === 'generateImage') {
+              const anchor = capturedImages[0]?.data || args.anchorImage || null;
+              const res = await apiGenerateImage(args.prompt || '', anchor);
+              if (res.error) return { error: res.error };
+              return { _imageGenerated: true, imageData: res.imageData, mimeType: res.mimeType };
+            }
             if (toolName === 'play_video') return executePlayVideo(channelData, args);
             if (toolName === 'plot_metric_vs_time') return executePlotMetricVsTime(channelData, args);
             return executeComputeStatsJson(channelData, args);
@@ -555,7 +636,15 @@ ${sessionSummary}${slimCsvBlock}
           history,
           promptForGemini,
           sessionCsvHeaders,
-          (toolName, args) => executeTool(toolName, args, sessionCsvRows),
+          async (toolName, args) => {
+            if (toolName === 'generateImage') {
+              const anchor = capturedImages[0]?.data || args.anchorImage || null;
+              const res = await apiGenerateImage(args.prompt || '', anchor);
+              if (res.error) return { error: res.error };
+              return { _imageGenerated: true, imageData: res.imageData, mimeType: res.mimeType };
+            }
+            return executeTool(toolName, args, sessionCsvRows);
+          },
           user?.firstName
         );
         fullContent = answer;
@@ -765,7 +854,7 @@ ${sessionSummary}${slimCsvBlock}
                       <div key={i} className="tool-call-item">
                         <span className="tool-call-name">{tc.name}</span>
                         <span className="tool-call-args">{JSON.stringify(tc.args)}</span>
-                        {tc.result && !tc.result._chartType && !(tc.name === 'play_video' && tc.result?.videoUrl) && !(tc.name === 'plot_metric_vs_time' && tc.result?._plotMetricVsTime) && (
+                        {tc.result && !tc.result._chartType && !(tc.name === 'play_video' && tc.result?.videoUrl) && !(tc.name === 'plot_metric_vs_time' && tc.result?._plotMetricVsTime) && !(tc.name === 'generateImage' && tc.result?._imageGenerated) && (
                           <span className="tool-call-result">
                             → {JSON.stringify(tc.result).slice(0, 200)}
                             {JSON.stringify(tc.result).length > 200 ? '…' : ''}
@@ -779,6 +868,9 @@ ${sessionSummary}${slimCsvBlock}
                         )}
                         {tc.name === 'plot_metric_vs_time' && tc.result?._plotMetricVsTime && (
                           <span className="tool-call-result">→ rendered chart</span>
+                        )}
+                        {tc.name === 'generateImage' && tc.result?._imageGenerated && (
+                          <span className="tool-call-result">→ rendered image</span>
                         )}
                       </div>
                     ))}
@@ -805,6 +897,17 @@ ${sessionSummary}${slimCsvBlock}
                     title={tc.result.title}
                     thumbnailUrl={tc.result.thumbnailUrl}
                     videoUrl={tc.result.videoUrl}
+                  />
+                ) : null
+              )}
+
+              {/* Generated images from generateImage tool calls */}
+              {m.toolCalls?.map((tc, i) =>
+                tc.name === 'generateImage' && tc.result?._imageGenerated && tc.result?.imageData && !tc.result?.error ? (
+                  <GeneratedImageCard
+                    key={`gen-image-${i}`}
+                    imageData={tc.result.imageData}
+                    mimeType={tc.result.mimeType}
                   />
                 ) : null
               )}
