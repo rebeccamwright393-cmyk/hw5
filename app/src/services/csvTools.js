@@ -78,10 +78,26 @@ export const CSV_TOOL_DECLARATIONS = [
       required: ['field'],
     },
   },
+  {
+    name: 'play_video',
+    description:
+      'When the user asks to play or open a video from the loaded channel JSON, resolve which video they mean and return its title, thumbnail, and URL. Query can be: a title keyword (e.g. "asbestos"), an ordinal (e.g. "first", "second", "3rd"), or "most viewed".',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        query: {
+          type: 'STRING',
+          description: 'How to find the video: a keyword from the title, an ordinal like "first"/"second"/"3rd", or "most viewed".',
+        },
+      },
+      required: ['query'],
+    },
+  },
 ];
 
 export const CHANNEL_TOOL_DECLARATIONS = [
   CSV_TOOL_DECLARATIONS.find((t) => t.name === 'compute_stats_json'),
+  CSV_TOOL_DECLARATIONS.find((t) => t.name === 'play_video'),
 ].filter(Boolean);
 
 // ── Parse a CSV line, respecting quoted fields ────────────────────────────────
@@ -333,6 +349,97 @@ export const executeComputeStatsJson = (channelData, args) => {
     min: Math.min(...vals),
     max: Math.max(...vals),
   };
+};
+
+// ── Extract title, thumbnailUrl, videoUrl from a video object ─────────────────
+
+const getVideoDisplayInfo = (v) => {
+  if (!v || typeof v !== 'object') return null;
+  const title =
+    v.title ?? v.name ?? v.snippet?.title ?? v.videoTitle ?? v.video_title ?? '';
+  const thumbnailUrl =
+    v.thumbnailUrl ?? v.thumbnail ?? v.thumbnails?.default?.url ??
+    v.thumbnails?.medium?.url ?? v.thumbnails?.high?.url ?? v.snippet?.thumbnails?.default?.url ?? '';
+  const videoUrl =
+    v.videoUrl ?? v.url ?? v.link ?? v.video_url ??
+    (v.video_id ? `https://www.youtube.com/watch?v=${v.video_id}` : null) ??
+    (v.id && typeof v.id === 'string' && !v.id.includes('/') ? `https://www.youtube.com/watch?v=${v.id}` : null) ??
+    (v.id?.videoId ? `https://www.youtube.com/watch?v=${v.id.videoId}` : null) ?? '';
+  return { title: String(title || 'Unknown'), thumbnailUrl: String(thumbnailUrl || ''), videoUrl: String(videoUrl || '') };
+};
+
+// ── Ordinal parsing (first, second, 3rd, 1st, etc.) ───────────────────────────
+
+const ORDINAL_MAP = {
+  first: 0, '1': 0, '1st': 0,
+  second: 1, '2': 1, '2nd': 1,
+  third: 2, '3': 2, '3rd': 2,
+  fourth: 3, '4': 3, '4th': 3,
+  fifth: 4, '5': 4, '5th': 4,
+  sixth: 5, '6': 5, '6th': 5,
+  seventh: 6, '7': 6, '7th': 6,
+  eighth: 7, '8': 7, '8th': 7,
+  ninth: 8, '9': 8, '9th': 8,
+  tenth: 9, '10': 9, '10th': 9,
+};
+
+const parseOrdinal = (s) => {
+  const key = String(s).toLowerCase().trim();
+  if (key in ORDINAL_MAP) return ORDINAL_MAP[key];
+  const n = parseInt(s, 10);
+  if (!isNaN(n) && n >= 1) return n - 1;
+  return null;
+};
+
+// ── play_video: resolve query and return { title, thumbnailUrl, videoUrl } ────
+
+export const executePlayVideo = (channelData, args) => {
+  const videos = getVideosFromChannelData(channelData);
+  if (!videos.length) {
+    return { error: 'No channel JSON loaded. Please drag and drop a YouTube channel JSON file first.' };
+  }
+  const query = args?.query;
+  if (!query || typeof query !== 'string') {
+    return { error: 'Missing or invalid "query" parameter. Provide a title keyword, ordinal (e.g. "first", "3rd"), or "most viewed".' };
+  }
+  const q = query.trim().toLowerCase();
+  let video = null;
+
+  // "most viewed"
+  if (/most\s*viewed|mostviewed/i.test(q)) {
+    const viewField = resolveJsonField(videos, 'view_count') || resolveJsonField(videos, 'views') || 'view_count';
+    let maxVal = -1;
+    let idx = -1;
+    videos.forEach((v, i) => {
+      const val = parseFloat(v[viewField]);
+      if (!isNaN(val) && val > maxVal) {
+        maxVal = val;
+        idx = i;
+      }
+    });
+    video = idx >= 0 ? videos[idx] : videos[0];
+  }
+  // Ordinal
+  else {
+    const ord = parseOrdinal(query);
+    if (ord !== null && ord >= 0 && ord < videos.length) {
+      video = videos[ord];
+    }
+  }
+
+  // Title keyword search
+  if (!video) {
+    const keyword = q.replace(/^(play|open|show)\s+/i, '').trim() || q;
+    video = videos.find((v) => {
+      const t = (v.title ?? v.name ?? v.snippet?.title ?? v.videoTitle ?? v.video_title ?? '').toString().toLowerCase();
+      return t.includes(keyword);
+    }) ?? videos[0];
+  }
+
+  const info = getVideoDisplayInfo(video);
+  if (!info) return { error: 'Could not extract video info from the selected video.' };
+  if (!info.videoUrl) return { error: 'No video URL found for the selected video.' };
+  return info;
 };
 
 // ── Client-side tool executor ─────────────────────────────────────────────────

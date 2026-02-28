@@ -31,6 +31,12 @@ compute_stats_json — Tool for YouTube channel JSON:
 - Output: JSON object with { field, count, mean, median, std, min, max } or { error: "message" } if the field is missing or non-numeric.
 - Example prompts that trigger this tool: "What's the average view count?", "Give me stats on like_count", "Summary of comment_count", "What's the distribution of duration?", "Mean and median for view_count".
 
+play_video — Tool for YouTube channel JSON:
+- Purpose: When the user asks to play or open a video from the loaded channel JSON, resolve which video they mean and return a clickable card with title, thumbnail, and URL that opens in a new tab.
+- Input: { "query": "string" } — How to find the video: a title keyword (e.g. "asbestos"), an ordinal (e.g. "first", "second", "3rd"), or "most viewed".
+- Output: JSON object with { title, thumbnailUrl, videoUrl } or { error: "message" } if no video matches.
+- Example prompts that trigger this tool: "Play the video about asbestos", "Open the first video", "Play the most viewed video", "Show me the second video", "Open the 3rd one".
+
 When a CSV is uploaded that contains a Favorite Count and a View Count column, an "engagement" column is automatically added to every row: engagement = Favorite Count / View Count. This column is always available for filtering, sorting, and analysis.
 
 You also have access to the following data analysis tools that work directly on any CSV the user uploads. Use them automatically when a student asks a data question — don't explain that you're calling a tool, just answer naturally with the result:

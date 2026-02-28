@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { streamChat, chatWithCsvTools, chatWithChannelTools, CODE_KEYWORDS } from '../services/gemini';
-import { parseCsvToRows, executeTool, executeComputeStatsJson, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
+import { parseCsvToRows, executeTool, executeComputeStatsJson, executePlayVideo, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
 import {
   getSessions,
   createSession,
@@ -59,6 +59,29 @@ const messageText = (m) => {
   if (m.parts) return m.parts.filter((p) => p.type === 'text').map((p) => p.text).join('\n');
   return m.content || '';
 };
+
+// ── Video card (play_video tool result) ───────────────────────────────────────
+
+function VideoCard({ title, thumbnailUrl, videoUrl }) {
+  if (!videoUrl) return null;
+  return (
+    <a
+      href={videoUrl}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="video-card"
+      title="Open in new tab"
+    >
+      {thumbnailUrl && (
+        <div className="video-card-thumb">
+          <img src={thumbnailUrl} alt="" />
+        </div>
+      )}
+      <div className="video-card-title">{title || 'Watch video'}</div>
+      <span className="video-card-hint">Click to open in new tab</span>
+    </a>
+  );
+}
 
 // ── Structured part renderer (code execution responses) ───────────────────────
 
@@ -398,8 +421,8 @@ export default function Chat({ user, onLogout }) {
     //   useTools        — CSV loaded + no Python needed → client-side JS tools (free, fast)
     //   useCodeExecution — Python explicitly needed (regression, histogram, etc.)
     //   else            — Google Search streaming
-    const STATS_KEYWORDS = /\b(stats?|average|summary|distribution|mean|median|views?|likes?|comments?|duration|view_count|like_count|comment_count)\b/i;
-    const useChannelTools = !!channelData && !sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && STATS_KEYWORDS.test(text);
+    const CHANNEL_KEYWORDS = /\b(stats?|average|summary|distribution|mean|median|views?|likes?|comments?|duration|view_count|like_count|comment_count|play|open)\b/i;
+    const useChannelTools = !!channelData && !sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && CHANNEL_KEYWORDS.test(text);
     const useTools = !!sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv;
     const useCodeExecution = wantPythonOnly || wantCode;
 
@@ -498,7 +521,10 @@ ${sessionSummary}${slimCsvBlock}
         const { text: answer, toolCalls: returnedCalls } = await chatWithChannelTools(
           history,
           promptForGemini,
-          (toolName, args) => executeComputeStatsJson(channelData, args),
+          (toolName, args) =>
+            toolName === 'play_video'
+              ? executePlayVideo(channelData, args)
+              : executeComputeStatsJson(channelData, args),
           user?.firstName
         );
         fullContent = answer;
@@ -731,7 +757,7 @@ ${sessionSummary}${slimCsvBlock}
                       <div key={i} className="tool-call-item">
                         <span className="tool-call-name">{tc.name}</span>
                         <span className="tool-call-args">{JSON.stringify(tc.args)}</span>
-                        {tc.result && !tc.result._chartType && (
+                        {tc.result && !tc.result._chartType && !(tc.name === 'play_video' && tc.result?.videoUrl) && (
                           <span className="tool-call-result">
                             → {JSON.stringify(tc.result).slice(0, 200)}
                             {JSON.stringify(tc.result).length > 200 ? '…' : ''}
@@ -740,10 +766,25 @@ ${sessionSummary}${slimCsvBlock}
                         {tc.result?._chartType && (
                           <span className="tool-call-result">→ rendered chart</span>
                         )}
+                        {tc.name === 'play_video' && tc.result?.videoUrl && (
+                          <span className="tool-call-result">→ rendered video card</span>
+                        )}
                       </div>
                     ))}
                   </div>
                 </details>
+              )}
+
+              {/* Video cards from play_video tool calls */}
+              {m.toolCalls?.map((tc, i) =>
+                tc.name === 'play_video' && tc.result?.title && tc.result?.videoUrl && !tc.result?.error ? (
+                  <VideoCard
+                    key={`video-${i}`}
+                    title={tc.result.title}
+                    thumbnailUrl={tc.result.thumbnailUrl}
+                    videoUrl={tc.result.videoUrl}
+                  />
+                ) : null
               )}
 
               {/* Engagement charts from tool calls */}
