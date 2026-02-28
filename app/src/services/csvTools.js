@@ -63,7 +63,26 @@ export const CSV_TOOL_DECLARATIONS = [
       required: ['sort_column'],
     },
   },
+  {
+    name: 'compute_stats_json',
+    description:
+      'Compute descriptive statistics (count, mean, median, std, min, max) for a numeric field across all videos in the loaded YouTube channel JSON. Use when the user asks for stats, average, summary, or distribution of a numeric field like view_count, like_count, comment_count, duration, etc.',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        field: {
+          type: 'STRING',
+          description: 'The field name to compute stats for. Common fields: view_count, like_count, comment_count, duration. Use the exact field name as it appears in the JSON.',
+        },
+      },
+      required: ['field'],
+    },
+  },
 ];
+
+export const CHANNEL_TOOL_DECLARATIONS = [
+  CSV_TOOL_DECLARATIONS.find((t) => t.name === 'compute_stats_json'),
+].filter(Boolean);
 
 // ── Parse a CSV line, respecting quoted fields ────────────────────────────────
 
@@ -252,6 +271,68 @@ export const computeDatasetSummary = (rows, headers) => {
   }
 
   return lines.join('\n');
+};
+
+// ── Get videos from channel JSON (common shapes) ──────────────────────────────
+
+const getVideosFromChannelData = (data) => {
+  if (!data) return [];
+  if (Array.isArray(data)) return data;
+  return data.videos ?? data.items ?? data.video_list ?? [];
+};
+
+// ── Resolve field name (case-insensitive, handles common variants) ────────────
+
+const resolveJsonField = (videos, fieldName) => {
+  if (!videos.length || !fieldName) return fieldName;
+  const first = videos[0];
+  if (typeof first !== 'object' || first === null) return fieldName;
+  const keys = Object.keys(first);
+  if (keys.includes(fieldName)) return fieldName;
+  const norm = (s) => s.toLowerCase().replace(/[\s_-]+/g, '');
+  const target = norm(fieldName);
+  return keys.find((k) => norm(k) === target) || fieldName;
+};
+
+// ── compute_stats_json: stats on YouTube channel JSON ────────────────────────
+
+export const executeComputeStatsJson = (channelData, args) => {
+  const videos = getVideosFromChannelData(channelData);
+  if (!videos.length) {
+    return { error: 'No channel JSON loaded. Please drag and drop a YouTube channel JSON file first.' };
+  }
+  const field = args?.field;
+  if (!field || typeof field !== 'string') {
+    return { error: 'Missing or invalid "field" parameter. Provide a field name, e.g. "view_count", "like_count", "comment_count", "duration".' };
+  }
+  const resolved = resolveJsonField(videos, field.trim());
+  const vals = videos
+    .map((v) => (v && typeof v === 'object' && resolved in v ? v[resolved] : null))
+    .map((v) => (typeof v === 'number' && !isNaN(v) ? v : parseFloat(v)))
+    .filter((v) => !isNaN(v));
+  if (!vals.length) {
+    const sampleKeys = typeof videos[0] === 'object' && videos[0] ? Object.keys(videos[0]).slice(0, 12) : [];
+    return {
+      error: `No numeric values found for field "${resolved}". The field may not exist or may contain non-numeric data. Sample fields in first video: ${sampleKeys.join(', ')}.`,
+    };
+  }
+  const count = vals.length;
+  const mean = vals.reduce((a, b) => a + b, 0) / count;
+  const sorted = [...vals].sort((a, b) => a - b);
+  const med = count % 2 === 0
+    ? (sorted[count / 2 - 1] + sorted[count / 2]) / 2
+    : sorted[Math.floor(count / 2)];
+  const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / count;
+  const std = Math.sqrt(variance);
+  return {
+    field: resolved,
+    count,
+    mean: +mean.toFixed(4),
+    median: +med.toFixed(4),
+    std: +std.toFixed(4),
+    min: Math.min(...vals),
+    max: Math.max(...vals),
+  };
 };
 
 // ── Client-side tool executor ─────────────────────────────────────────────────

@@ -1,8 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { streamChat, chatWithCsvTools, CODE_KEYWORDS } from '../services/gemini';
-import { parseCsvToRows, executeTool, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
+import { streamChat, chatWithCsvTools, chatWithChannelTools, CODE_KEYWORDS } from '../services/gemini';
+import { parseCsvToRows, executeTool, executeComputeStatsJson, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
 import {
   getSessions,
   createSession,
@@ -394,9 +394,12 @@ export default function Chat({ user, onLogout }) {
     // Base64 is only worth sending when Gemini will actually run Python
     const needsBase64 = !!capturedCsv && wantPythonOnly;
     // Mode selection:
+    //   useChannelTools — channel JSON loaded + stats/average/summary/distribution asked
     //   useTools        — CSV loaded + no Python needed → client-side JS tools (free, fast)
     //   useCodeExecution — Python explicitly needed (regression, histogram, etc.)
-    //   else            — Google Search streaming (also used for "tell me about this file")
+    //   else            — Google Search streaming
+    const STATS_KEYWORDS = /\b(stats?|average|summary|distribution|mean|median|views?|likes?|comments?|duration|view_count|like_count|comment_count)\b/i;
+    const useChannelTools = !!channelData && !sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && STATS_KEYWORDS.test(text);
     const useTools = !!sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv;
     const useCodeExecution = wantPythonOnly || wantCode;
 
@@ -489,7 +492,29 @@ ${sessionSummary}${slimCsvBlock}
     let toolCalls = [];
 
     try {
-      if (useTools) {
+      if (useChannelTools) {
+        // ── Channel JSON tools: compute_stats_json ───────────────────────────
+        console.log('[Chat] useChannelTools=true | channelData loaded');
+        const { text: answer, toolCalls: returnedCalls } = await chatWithChannelTools(
+          history,
+          promptForGemini,
+          (toolName, args) => executeComputeStatsJson(channelData, args),
+          user?.firstName
+        );
+        fullContent = answer;
+        toolCalls = returnedCalls || [];
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === assistantId
+              ? {
+                  ...msg,
+                  content: fullContent,
+                  toolCalls: toolCalls.length ? toolCalls : undefined,
+                }
+              : msg
+          )
+        );
+      } else if (useTools) {
         // ── Function-calling path: Gemini picks tool + args, JS executes ──────
         console.log('[Chat] useTools=true | rows:', sessionCsvRows.length, '| headers:', sessionCsvHeaders);
         const { text: answer, charts: returnedCharts, toolCalls: returnedCalls } = await chatWithCsvTools(
