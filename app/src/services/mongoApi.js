@@ -72,11 +72,29 @@ export const loadMessages = async (sessionId) => {
 
 // ── Image generation ────────────────────────────────────────────────────────
 
+const IMAGE_GEN_TIMEOUT_MS = 90000; // 90 seconds — Imagen can be slow
+
 export const generateImage = async (prompt, anchorImage = null) => {
   const body = { prompt };
   if (anchorImage) body.anchorImage = anchorImage;
-  return api('/api/generate-image', {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), IMAGE_GEN_TIMEOUT_MS);
+  try {
+    const res = await fetch(`${API}/api/generate-image`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+    const text = await res.text();
+    if (!res.ok) throw new Error(text || res.statusText);
+    return text ? JSON.parse(text) : {};
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      throw new Error('Image generation timed out after 90 seconds. Try again or use a simpler prompt.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 };

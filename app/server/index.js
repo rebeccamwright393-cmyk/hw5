@@ -170,33 +170,46 @@ app.post('/api/generate-image', async (req, res) => {
     const { GoogleGenAI } = await import('@google/genai');
     const ai = new GoogleGenAI({ apiKey });
     const config = { numberOfImages: 1, aspectRatio: '1:1' };
+    const IMAGE_GEN_TIMEOUT_MS = 85000; // 85s — slightly under client timeout
+    const withTimeout = (p) =>
+      Promise.race([
+        p,
+        new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Image generation timed out. Imagen may be slow or unavailable.')), IMAGE_GEN_TIMEOUT_MS)
+        ),
+      ]);
+
     let response;
-    try {
-      if (anchorImage && typeof anchorImage === 'string') {
-        const base64Data = anchorImage.replace(/^data:image\/\w+;base64,/, '');
-        response = await ai.models.editImage({
-          model: 'imagen-3.0-capability-001',
-          prompt: prompt.trim(),
-          referenceImages: [{ referenceImage: { imageBytes: base64Data } }],
-          config,
-        });
-      } else {
-        response = await ai.models.generateImages({
+    if (anchorImage && typeof anchorImage === 'string') {
+      const base64Data = anchorImage.replace(/^data:image\/\w+;base64,/, '');
+      const editTimeout = 30000; // 30s for edit — often slow/unavailable
+      try {
+        response = await Promise.race([
+          ai.models.editImage({
+            model: 'imagen-3.0-capability-001',
+            prompt: prompt.trim(),
+            referenceImages: [{ referenceImage: { imageBytes: base64Data } }],
+            config,
+          }),
+          new Promise((_, reject) => setTimeout(() => reject(new Error('edit_timeout')), editTimeout)),
+        ]);
+      } catch (editErr) {
+        response = await withTimeout(
+          ai.models.generateImages({
+            model: 'imagen-3.0-generate-001',
+            prompt: prompt.trim(),
+            config,
+          })
+        );
+      }
+    } else {
+      response = await withTimeout(
+        ai.models.generateImages({
           model: 'imagen-3.0-generate-001',
           prompt: prompt.trim(),
           config,
-        });
-      }
-    } catch (editErr) {
-      if (anchorImage) {
-        response = await ai.models.generateImages({
-          model: 'imagen-3.0-generate-001',
-          prompt: prompt.trim(),
-          config,
-        });
-      } else {
-        throw editErr;
-      }
+        })
+      );
     }
     const firstImg = response?.generatedImages?.[0];
     const imageBytes = firstImg?.image?.imageBytes || firstImg?.imageBytes;

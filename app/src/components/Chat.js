@@ -471,9 +471,19 @@ export default function Chat({ user, onLogout, channelData: channelDataProp, set
     //   useCodeExecution — Python explicitly needed (regression, histogram, etc.)
     //   else            — Google Search streaming
     const CHANNEL_KEYWORDS = /\b(stats?|average|summary|distribution|mean|median|views?|likes?|comments?|duration|view_count|like_count|comment_count|play|open|plot|chart|graph)\b/i;
-    const IMAGE_GEN_KEYWORDS = /\b(generate|create|draw|make)\s+(an?\s+)?(image|picture|photo|illustration|art)\b|(like\s+this|in\s+this\s+style|based\s+on\s+this)\b/i;
-    const useImageGenTools = IMAGE_GEN_KEYWORDS.test(text) || (images.length > 0 && /\b(generate|create|draw|make|like\s+this|in\s+this\s+style)\b/i.test(text));
-    const useChannelTools = !!channelData && !sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && CHANNEL_KEYWORDS.test(text) && !useImageGenTools;
+    const IMAGE_GEN_KEYWORDS = /\b(generate|create|draw|make)\s+(an?\s+)?(image|picture|photo|illustration|art|thumbnail)\b|(like\s+this|in\s+this\s+style|based\s+on\s+this)\b/i;
+    const IMAGE_GEN_CONTEXT_KEYWORDS = /\b(generate|create|draw|make|thumbnail|image|picture)\b|(what\s+text|re-upload|reupload|attached)\b/i;
+    const lastUserContent = messages.filter((m) => m.role === 'user').slice(-1)[0]?.content || '';
+    const lastModelContent = messages.filter((m) => m.role === 'model').slice(-1)[0]?.content || '';
+    const recentConvoSuggestsImageGen = IMAGE_GEN_CONTEXT_KEYWORDS.test(lastUserContent) || IMAGE_GEN_CONTEXT_KEYWORDS.test(lastModelContent);
+    const useImageGenTools =
+      IMAGE_GEN_KEYWORDS.test(text) ||
+      (images.length > 0 && /\b(generate|create|draw|make|like\s+this|in\s+this\s+style|thumbnail)\b/i.test(text)) ||
+      (images.length > 0 && !text.trim() && recentConvoSuggestsImageGen) ||
+      (recentConvoSuggestsImageGen && text.trim().length > 3);
+    // When channel data is loaded + user asks for stats/view_count/etc., prefer channel tools
+    // over code execution (compute_stats_json is JS, not Python — "compute" must not route to Python)
+    const useChannelTools = !!channelData && !sessionCsvRows && !wantPythonOnly && !capturedCsv && CHANNEL_KEYWORDS.test(text) && !useImageGenTools;
     const useTools = !!sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && !useImageGenTools;
     const useCodeExecution = (wantPythonOnly || wantCode) && !useImageGenTools;
 
@@ -522,7 +532,15 @@ ${sessionSummary}${slimCsvBlock}
     // userContent  — displayed in bubble and stored in MongoDB (never contains base64)
     // promptForGemini — sent to the Gemini API (may contain the full prefix)
     const userContent = text || (images.length ? '(Image)' : csvContext ? '(CSV attached)' : channelData ? '(Channel JSON loaded)' : '');
-    const defaultPrompt = images.length ? 'What do you see in this image?' : csvContext ? 'Please analyze this CSV data.' : channelData ? 'Please analyze this YouTube channel data.' : '';
+    const defaultPrompt = useImageGenTools && images.length && !text.trim()
+      ? 'Generate an image based on the attached image and our previous conversation.'
+      : images.length
+        ? 'What do you see in this image?'
+        : csvContext
+          ? 'Please analyze this CSV data.'
+          : channelData
+            ? 'Please analyze this YouTube channel data.'
+            : '';
     const promptForGemini = channelDataPrefix + csvPrefix + (text || defaultPrompt);
 
     const userMsg = {

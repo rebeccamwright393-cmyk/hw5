@@ -513,31 +513,56 @@ export const executePlotMetricVsTime = (channelData, args) => {
     'release_date';
   const metricField = resolveJsonField(videos, field.trim());
 
-  const rows = videos
+  // Build rows with date when available
+  let rows = videos
     .map((v) => {
       if (!v || typeof v !== 'object') return null;
       const dateVal = dateField in v ? v[dateField] : null;
       const metricVal = metricField in v ? v[metricField] : null;
       const parsed = parseFloat(metricVal);
       const d = parseDate(dateVal);
-      if (!d || isNaN(d.getTime()) || isNaN(parsed)) return null;
-      return { date: d, value: parsed };
+      if (isNaN(parsed)) return null;
+      if (d && !isNaN(d.getTime())) return { date: d, value: parsed };
+      return null;
     })
     .filter(Boolean);
+
+  // Fallback: when release_date is missing, use video index (channel order = newest first)
+  if (!rows.length) {
+    rows = videos
+      .map((v, i) => {
+        if (!v || typeof v !== 'object') return null;
+        const metricVal = metricField in v ? v[metricField] : null;
+        const parsed = parseFloat(metricVal);
+        if (isNaN(parsed)) return null;
+        return { index: i + 1, value: parsed };
+      })
+      .filter(Boolean);
+  }
 
   if (!rows.length) {
     const sampleKeys = typeof videos[0] === 'object' && videos[0] ? Object.keys(videos[0]).slice(0, 12) : [];
     return {
-      error: `Could not build chart: missing valid release_date and ${metricField} values. Sample fields: ${sampleKeys.join(', ')}.`,
+      error: `Could not build chart: missing valid ${metricField} values. Sample fields: ${sampleKeys.join(', ')}.`,
     };
   }
 
-  rows.sort((a, b) => a.date.getTime() - b.date.getTime());
-  const data = rows.map((r) => ({
-    name: formatDateForLabel(r.date),
-    value: r.value,
-    rawDate: r.date.toISOString(),
-  }));
+  const hasDates = rows[0]?.date != null;
+  if (hasDates) {
+    rows.sort((a, b) => a.date.getTime() - b.date.getTime());
+  }
+
+  const data = hasDates
+    ? rows.map((r) => ({
+        name: formatDateForLabel(r.date),
+        value: r.value,
+        rawDate: r.date.toISOString(),
+      }))
+    : rows.map((r) => ({
+        name: `Video ${r.index}`,
+        value: r.value,
+        rawDate: String(r.index),
+      }));
 
   return {
     _plotMetricVsTime: true,
