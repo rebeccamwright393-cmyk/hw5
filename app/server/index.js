@@ -3,6 +3,7 @@ const express = require('express');
 const { MongoClient, ObjectId } = require('mongodb');
 const bcrypt = require('bcryptjs');
 const cors = require('cors');
+const { downloadChannelData } = require('./youtube');
 
 const app = express();
 app.use(cors());
@@ -151,6 +152,32 @@ app.patch('/api/sessions/:id/title', async (req, res) => {
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── YouTube channel download ──────────────────────────────────────────────────
+
+app.post('/api/youtube/download-channel', async (req, res) => {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  try {
+    const { channelUrl, maxVideos = 10 } = req.body;
+    if (!channelUrl || typeof channelUrl !== 'string') {
+      res.write(JSON.stringify({ type: 'error', error: 'channelUrl is required' }) + '\n');
+      return res.end();
+    }
+    const cap = Math.min(Math.max(1, parseInt(String(maxVideos), 10) || 10), 100);
+    const data = await downloadChannelData(channelUrl, cap, (p) => {
+      try {
+        res.write(JSON.stringify({ type: 'progress', ...p }) + '\n');
+      } catch (_) {}
+    });
+    res.write(JSON.stringify({ type: 'done', data }) + '\n');
+  } catch (err) {
+    res.write(JSON.stringify({ type: 'error', error: err.message || 'Download failed' }) + '\n');
+  } finally {
+    res.end();
   }
 });
 

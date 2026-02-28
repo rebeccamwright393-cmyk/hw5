@@ -142,7 +142,7 @@ function StructuredParts({ parts }) {
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-export default function Chat({ user, onLogout }) {
+export default function Chat({ user, onLogout, channelData: channelDataProp, setChannelData: setChannelDataProp }) {
   const username = user?.username ?? '';
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
@@ -154,7 +154,7 @@ export default function Chat({ user, onLogout }) {
   const [sessionCsvHeaders, setSessionCsvHeaders] = useState(null); // headers for tool routing
   const [csvDataSummary, setCsvDataSummary] = useState(null);    // auto-computed column stats summary
   const [sessionSlimCsv, setSessionSlimCsv] = useState(null);   // key-columns CSV string sent directly to Gemini
-  const [channelData, setChannelData] = useState(() => {
+  const [internalChannelData, setInternalChannelData] = useState(() => {
     try {
       const stored = localStorage.getItem(CHANNEL_STORAGE_KEY);
       if (!stored) return null;
@@ -163,6 +163,12 @@ export default function Chat({ user, onLogout }) {
     } catch {
       return null;
     }
+  });
+  const channelData = channelDataProp !== undefined ? channelDataProp : internalChannelData;
+  const setChannelData = setChannelDataProp || ((v) => {
+    setInternalChannelData(v);
+    if (v) localStorage.setItem(CHANNEL_STORAGE_KEY, JSON.stringify(v));
+    else localStorage.removeItem(CHANNEL_STORAGE_KEY);
   });
   const [channelDataError, setChannelDataError] = useState(null);
   const [streaming, setStreaming] = useState(false);
