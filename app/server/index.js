@@ -96,10 +96,26 @@ app.get('/api/sessions', async (req, res) => {
   try {
     const { username } = req.query;
     if (!username) return res.status(400).json({ error: 'username required' });
+    // Use aggregation with projection to avoid loading large messages; allowDiskUse prevents sort memory limit
     const sessions = await db
       .collection('sessions')
-      .find({ username })
-      .sort({ createdAt: -1 })
+      .aggregate(
+        [
+          { $match: { username } },
+          { $sort: { createdAt: -1 } },
+          { $limit: 200 },
+          {
+            $project: {
+              _id: 1,
+              agent: 1,
+              title: 1,
+              createdAt: 1,
+              messageCount: { $size: { $ifNull: ['$messages', []] } },
+            },
+          },
+        ],
+        { allowDiskUse: true }
+      )
       .toArray();
     res.json(
       sessions.map((s) => ({
@@ -107,7 +123,7 @@ app.get('/api/sessions', async (req, res) => {
         agent: s.agent || null,
         title: s.title || null,
         createdAt: s.createdAt,
-        messageCount: (s.messages || []).length,
+        messageCount: s.messageCount ?? 0,
       }))
     );
   } catch (err) {

@@ -1,6 +1,48 @@
-# Chat App
+# Chat App (HW5)
 
-A React chatbot with Gemini AI, web search, user auth, MongoDB persistence, and client-side data analysis. Glassmorphism UI with streaming responses, CSV upload, and code execution.
+A React chatbot with Gemini AI, web search, user auth, MongoDB persistence, YouTube channel analysis, and image generation. Glassmorphism UI with streaming responses, CSV upload, and code execution.
+
+## Quick Start — Run Locally (Two Terminals)
+
+**1. Install and configure**
+```bash
+cd app
+npm install
+```
+Create a `.env` file (see [Required Environment Variables](#required-environment-variables) below).
+
+**2. Run backend (Terminal 1)**
+```bash
+npm run server
+```
+
+**3. Run frontend (Terminal 2)**
+```bash
+npm run client
+```
+
+Open **http://localhost:3000**. Log in or create an account.
+
+## Required Environment Variables
+
+Create a `.env` file in the `app` folder:
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `REACT_APP_GEMINI_API_KEY` | Yes | Google Gemini API key from [AI Studio](https://aistudio.google.com/apikey). Needed for chat and image generation. |
+| `REACT_APP_MONGODB_URI` | Yes | MongoDB Atlas connection string: `mongodb+srv://USER:PASSWORD@CLUSTER.mongodb.net/` |
+
+## Testing Rubric Items Quickly
+
+| Rubric item | How to test |
+|-------------|-------------|
+| **YouTube Channel Download tab** | After login, click "YouTube Channel Download". Enter `https://www.youtube.com/@veritasium`, max 10, click "Download Channel Data". Wait for progress bar, then "Download JSON file". |
+| **Channel JSON analysis** | Use the pre-loaded `public/veritasium_channel_data.json` (or download via the tab above). Drag the JSON into chat. Ask: "Compute stats for view_count" → uses `compute_stats_json`. |
+| **Plot metric vs time** | With channel JSON loaded, ask: "Plot view_count vs time" → uses `plot_metric_vs_time`. Chart appears in chat; click to enlarge, download as SVG/PNG. |
+| **Play video** | With channel JSON loaded, ask: "Play the most viewed video" or "Open the first video" → uses `play_video`. Clickable video card appears. |
+| **generateImage** | Ask: "Generate an image of a sunset over mountains" → uses `generateImage`. Image appears; click to enlarge (lightbox), use Download button. Optionally drag an image + "Generate a YouTube thumbnail with bold text" for anchor-based generation. |
+
+**Sample channel JSON:** `public/veritasium_channel_data.json` contains 10 Veritasium videos for testing. Drag it into chat or load via the YouTube Channel Download tab.
 
 ## How It Works
 
