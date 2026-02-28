@@ -37,6 +37,12 @@ play_video — Tool for YouTube channel JSON:
 - Output: JSON object with { title, thumbnailUrl, videoUrl } or { error: "message" } if no video matches.
 - Example prompts that trigger this tool: "Play the video about asbestos", "Open the first video", "Play the most viewed video", "Show me the second video", "Open the 3rd one".
 
+plot_metric_vs_time — Tool for YouTube channel JSON:
+- Purpose: Plot a numeric field (e.g. view_count, like_count, comment_count) over time. Sorts videos by release_date and renders an interactive line chart inside the chat. The chart can be enlarged by clicking and downloaded as SVG or PNG.
+- Input: { "field": "string" } — The numeric field to plot (e.g. "view_count", "like_count", "comment_count").
+- Output: Chart data (field, data points) or { error: "message" } if release_date or the field is missing/non-numeric.
+- Example prompts that trigger this tool: "Plot view_count over time", "Chart likes vs release date", "Graph comment_count vs time", "Show me views over time".
+
 When a CSV is uploaded that contains a Favorite Count and a View Count column, an "engagement" column is automatically added to every row: engagement = Favorite Count / View Count. This column is always available for filtering, sorting, and analysis.
 
 You also have access to the following data analysis tools that work directly on any CSV the user uploads. Use them automatically when a student asks a data question — don't explain that you're calling a tool, just answer naturally with the result:

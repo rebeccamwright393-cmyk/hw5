@@ -93,11 +93,27 @@ export const CSV_TOOL_DECLARATIONS = [
       required: ['query'],
     },
   },
+  {
+    name: 'plot_metric_vs_time',
+    description:
+      'Plot a numeric field over time for videos in the loaded channel JSON. Sorts videos by release_date and plots the selected field. Use when the user asks to plot, chart, or graph a metric vs time (e.g. "plot view_count over time", "chart likes vs release date").',
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        field: {
+          type: 'STRING',
+          description: 'The numeric field to plot (e.g. view_count, like_count, comment_count). Use the exact field name as it appears in the JSON.',
+        },
+      },
+      required: ['field'],
+    },
+  },
 ];
 
 export const CHANNEL_TOOL_DECLARATIONS = [
   CSV_TOOL_DECLARATIONS.find((t) => t.name === 'compute_stats_json'),
   CSV_TOOL_DECLARATIONS.find((t) => t.name === 'play_video'),
+  CSV_TOOL_DECLARATIONS.find((t) => t.name === 'plot_metric_vs_time'),
 ].filter(Boolean);
 
 // ── Parse a CSV line, respecting quoted fields ────────────────────────────────
@@ -440,6 +456,70 @@ export const executePlayVideo = (channelData, args) => {
   if (!info) return { error: 'Could not extract video info from the selected video.' };
   if (!info.videoUrl) return { error: 'No video URL found for the selected video.' };
   return info;
+};
+
+// ── plot_metric_vs_time: sort by release_date, plot field vs time ─────────────
+
+const parseDate = (v) => {
+  if (!v) return null;
+  if (typeof v === 'number') return new Date(v);
+  if (typeof v === 'string') return new Date(v);
+  return null;
+};
+
+const formatDateForLabel = (d) => {
+  if (!d || isNaN(d.getTime())) return '?';
+  return d.toLocaleDateString([], { year: 'numeric', month: 'short', day: 'numeric' });
+};
+
+export const executePlotMetricVsTime = (channelData, args) => {
+  const videos = getVideosFromChannelData(channelData);
+  if (!videos.length) {
+    return { error: 'No channel JSON loaded. Please drag and drop a YouTube channel JSON file first.' };
+  }
+  const field = args?.field;
+  if (!field || typeof field !== 'string') {
+    return { error: 'Missing or invalid "field" parameter. Provide a numeric field name, e.g. "view_count", "like_count", "comment_count".' };
+  }
+  const dateField = resolveJsonField(videos, 'release_date') ||
+    resolveJsonField(videos, 'publishedAt') ||
+    resolveJsonField(videos, 'published_at') ||
+    resolveJsonField(videos, 'date') ||
+    resolveJsonField(videos, 'uploadDate') ||
+    'release_date';
+  const metricField = resolveJsonField(videos, field.trim());
+
+  const rows = videos
+    .map((v) => {
+      if (!v || typeof v !== 'object') return null;
+      const dateVal = dateField in v ? v[dateField] : null;
+      const metricVal = metricField in v ? v[metricField] : null;
+      const parsed = parseFloat(metricVal);
+      const d = parseDate(dateVal);
+      if (!d || isNaN(d.getTime()) || isNaN(parsed)) return null;
+      return { date: d, value: parsed };
+    })
+    .filter(Boolean);
+
+  if (!rows.length) {
+    const sampleKeys = typeof videos[0] === 'object' && videos[0] ? Object.keys(videos[0]).slice(0, 12) : [];
+    return {
+      error: `Could not build chart: missing valid release_date and ${metricField} values. Sample fields: ${sampleKeys.join(', ')}.`,
+    };
+  }
+
+  rows.sort((a, b) => a.date.getTime() - b.date.getTime());
+  const data = rows.map((r) => ({
+    name: formatDateForLabel(r.date),
+    value: r.value,
+    rawDate: r.date.toISOString(),
+  }));
+
+  return {
+    _plotMetricVsTime: true,
+    field: metricField,
+    data,
+  };
 };
 
 // ── Client-side tool executor ─────────────────────────────────────────────────

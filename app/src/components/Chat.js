@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { streamChat, chatWithCsvTools, chatWithChannelTools, CODE_KEYWORDS } from '../services/gemini';
-import { parseCsvToRows, executeTool, executeComputeStatsJson, executePlayVideo, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
+import { parseCsvToRows, executeTool, executeComputeStatsJson, executePlayVideo, executePlotMetricVsTime, computeDatasetSummary, enrichWithEngagement, buildSlimCsv } from '../services/csvTools';
 import {
   getSessions,
   createSession,
@@ -11,6 +11,7 @@ import {
   loadMessages,
 } from '../services/mongoApi';
 import EngagementChart from './EngagementChart';
+import MetricVsTimeChart from './MetricVsTimeChart';
 import './Chat.css';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -421,7 +422,7 @@ export default function Chat({ user, onLogout }) {
     //   useTools        — CSV loaded + no Python needed → client-side JS tools (free, fast)
     //   useCodeExecution — Python explicitly needed (regression, histogram, etc.)
     //   else            — Google Search streaming
-    const CHANNEL_KEYWORDS = /\b(stats?|average|summary|distribution|mean|median|views?|likes?|comments?|duration|view_count|like_count|comment_count|play|open)\b/i;
+    const CHANNEL_KEYWORDS = /\b(stats?|average|summary|distribution|mean|median|views?|likes?|comments?|duration|view_count|like_count|comment_count|play|open|plot|chart|graph)\b/i;
     const useChannelTools = !!channelData && !sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv && CHANNEL_KEYWORDS.test(text);
     const useTools = !!sessionCsvRows && !wantPythonOnly && !wantCode && !capturedCsv;
     const useCodeExecution = wantPythonOnly || wantCode;
@@ -521,10 +522,11 @@ ${sessionSummary}${slimCsvBlock}
         const { text: answer, toolCalls: returnedCalls } = await chatWithChannelTools(
           history,
           promptForGemini,
-          (toolName, args) =>
-            toolName === 'play_video'
-              ? executePlayVideo(channelData, args)
-              : executeComputeStatsJson(channelData, args),
+          (toolName, args) => {
+            if (toolName === 'play_video') return executePlayVideo(channelData, args);
+            if (toolName === 'plot_metric_vs_time') return executePlotMetricVsTime(channelData, args);
+            return executeComputeStatsJson(channelData, args);
+          },
           user?.firstName
         );
         fullContent = answer;
@@ -757,7 +759,7 @@ ${sessionSummary}${slimCsvBlock}
                       <div key={i} className="tool-call-item">
                         <span className="tool-call-name">{tc.name}</span>
                         <span className="tool-call-args">{JSON.stringify(tc.args)}</span>
-                        {tc.result && !tc.result._chartType && !(tc.name === 'play_video' && tc.result?.videoUrl) && (
+                        {tc.result && !tc.result._chartType && !(tc.name === 'play_video' && tc.result?.videoUrl) && !(tc.name === 'plot_metric_vs_time' && tc.result?._plotMetricVsTime) && (
                           <span className="tool-call-result">
                             → {JSON.stringify(tc.result).slice(0, 200)}
                             {JSON.stringify(tc.result).length > 200 ? '…' : ''}
@@ -769,10 +771,24 @@ ${sessionSummary}${slimCsvBlock}
                         {tc.name === 'play_video' && tc.result?.videoUrl && (
                           <span className="tool-call-result">→ rendered video card</span>
                         )}
+                        {tc.name === 'plot_metric_vs_time' && tc.result?._plotMetricVsTime && (
+                          <span className="tool-call-result">→ rendered chart</span>
+                        )}
                       </div>
                     ))}
                   </div>
                 </details>
+              )}
+
+              {/* Metric vs time charts from plot_metric_vs_time tool calls */}
+              {m.toolCalls?.map((tc, i) =>
+                tc.name === 'plot_metric_vs_time' && tc.result?._plotMetricVsTime && tc.result?.data?.length ? (
+                  <MetricVsTimeChart
+                    key={`metric-vs-time-${i}`}
+                    data={tc.result.data}
+                    field={tc.result.field}
+                  />
+                ) : null
               )}
 
               {/* Video cards from play_video tool calls */}
